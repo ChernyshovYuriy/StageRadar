@@ -107,6 +107,9 @@ def _ticker_to_dict(t) -> dict:
         "price_vs_ma150": round(float(_to_builtin(t.price_vs_ma150)), 2),
         "pct_from_52w_high": round(float(_to_builtin(t.pct_from_52w_high)), 2),
         "is_up": bool(_to_builtin(t.is_up)),
+        "rel_volume": round(float(_to_builtin(t.rel_volume)), 3),
+        "rs_slope": round(float(_to_builtin(t.rs_slope)), 3),
+        "market_cap": int(_to_builtin(t.market_cap)),
         "error": t.error,
     }
 
