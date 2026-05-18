@@ -474,7 +474,7 @@ def _compute_stage(
         if ma150_slope >= RISING_THRESHOLD:
             # Is the uptrend losing steam? Check deceleration + RSI
             slope_decelerating = deceleration < -2.5  # MA150 slowing fast
-            rsi_fading = rsi < 58 and rsi < 65  # momentum waning
+            rsi_fading = rsi < 65  # momentum waning
             price_below_ma50 = cur_price < cur_ma50  # near-term breakdown
             if (slope_decelerating and rsi_fading) or price_below_ma50:
                 stage = 3  # Topping — momentum fading despite still above MA150
@@ -483,9 +483,6 @@ def _compute_stage(
         else:
             # MA150 flat or declining while price still above it → classic Stage 3
             stage = 3
-            # If MA50 is also declining and price slipped under it → early Stage 4
-            if ma50_slope < DECLINING_THRESHOLD and cur_price < cur_ma50:
-                stage = 4
 
     else:  # cur_price < cur_ma150
         if ma150_slope <= DECLINING_THRESHOLD:
@@ -497,8 +494,11 @@ def _compute_stage(
                 stage = 1  # Basing — downtrend slowing, accumulation possible
             else:
                 stage = 4  # Declining — still in downtrend
+        elif ma150_slope >= RISING_THRESHOLD:
+            # MA150 still rising but price dipped below it → Stage 3 pullback, not basing
+            stage = 3
         else:
-            # MA150 flat or gently rising, price just pulled back under it → Stage 1
+            # MA150 flat (between thresholds), price below it → genuine Stage 1 basing
             stage = 1
 
     label = _STAGE_LABELS[stage]
