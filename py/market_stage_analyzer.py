@@ -26,13 +26,15 @@ Usage:
 from __future__ import annotations
 
 import warnings
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
 
-warnings.filterwarnings("ignore")
+warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Constants
@@ -239,13 +241,16 @@ class MarketAnalyzer:
         if INDEX_TICKER in volume_df.columns:
             volume_df.pop(INDEX_TICKER)
 
-        # Fetch sector info and market cap per ticker (one call each)
-        info_map: Dict[str, dict] = {}
-        for sym in self.tickers:
+        # Fetch sector info and market cap in parallel — sequential calls for 961
+        # tickers take ~8 minutes; 20 workers cuts that to under a minute.
+        def _fetch_one(sym: str) -> tuple:
             try:
-                info_map[sym] = yf.Ticker(sym).info
+                return sym, yf.Ticker(sym).info
             except Exception:
-                info_map[sym] = {}
+                return sym, {}
+
+        with ThreadPoolExecutor(max_workers=20) as pool:
+            info_map = dict(pool.map(_fetch_one, self.tickers))
 
         return prices_df, volume_df, index_prices, info_map
 
@@ -344,7 +349,9 @@ class MarketAnalyzer:
 
             stages = [m.stage for m in valid]
             n      = len(stages)
-            modal  = max(set(stages), key=stages.count)
+            max_count = max(stages.count(s) for s in set(stages))
+            tied  = [s for s in set(stages) if stages.count(s) == max_count]
+            modal = max(tied, key=lambda s: _STAGE_CAUTION[s])
             pct_s2 = stages.count(2) / n * 100
             pct_s4 = stages.count(4) / n * 100
 
@@ -419,6 +426,10 @@ _STAGE_LABELS = {
     3: "Topping",
     4: "Declining",
 }
+
+# Tie-breaking order for sector modal stage: prefer the more cautious reading.
+# (higher number = more cautious; Stage 4 > 3 > 1 > 2)
+_STAGE_CAUTION = {4: 4, 3: 3, 1: 2, 2: 1}
 
 
 def _compute_stage(
