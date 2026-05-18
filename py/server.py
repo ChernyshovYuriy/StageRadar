@@ -158,17 +158,24 @@ def _load_cache() -> Optional[dict]:
 
 def _run_analysis(tickers: List[str]):
     """Runs in a background thread."""
+    def _progress(msg: str):
+        with _lock:
+            _state["progress"] = msg
+
     try:
         with _lock:
             _state["status"]   = "running"
-            _state["progress"] = "Downloading price data…"
+            _state["progress"] = "Starting analysis…"
             _state["error"]    = None
 
-        analyzer = MarketAnalyzer(tickers)
+        analyzer = MarketAnalyzer(tickers, progress_fn=_progress)
         report   = analyzer.run()
         data     = _report_to_dict(report)
 
-        _save_cache(data)
+        try:
+            _save_cache(data)
+        except Exception as e:
+            print(f"[server] Cache write failed: {e}")
 
         with _lock:
             _state["status"]       = "ready"
@@ -238,6 +245,7 @@ def trigger_analysis():
     with _lock:
         if _state["status"] == "running":
             return {"message": "Analysis already running"}
+        _state["status"] = "running"  # claim the slot before releasing the lock
 
     with open(CAN_TICKERS_PATH, "r") as f:
         tickers: List[str] = [line.strip() for line in f if line.strip()]

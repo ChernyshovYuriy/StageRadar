@@ -187,23 +187,29 @@ class MarketAnalyzer:
         yfinance period string (default "2y").  Needs ≥ 190 trading days.
     """
 
-    def __init__(self, tickers: List[str], period: str = HISTORY):
-        self.tickers = [t.upper().strip() for t in tickers]
-        self.period  = period
+    def __init__(self, tickers: List[str], period: str = HISTORY, progress_fn=None):
+        self.tickers   = [t.upper().strip() for t in tickers]
+        self.period    = period
+        self._progress = progress_fn or (lambda msg: None)
 
     # ── public entry point ─────────────────────────────────────────────────
     def run(self) -> MarketReport:
         """Download data, analyse every ticker, aggregate by sector."""
-        print(f"[MarketAnalyzer] Fetching data for {len(self.tickers)} tickers…")
+        n = len(self.tickers)
+        print(f"[MarketAnalyzer] Fetching data for {n} tickers…")
         prices_df, volume_df, index_prices, info_map = self._fetch_data()
 
+        self._progress(f"Analysing tickers… 0 / {n}")
         ticker_results: List[TickerResult] = []
-        for sym in self.tickers:
+        for i, sym in enumerate(self.tickers):
             result = self._analyse_ticker(sym, prices_df, volume_df, index_prices, info_map)
             ticker_results.append(result)
             status = f"Stage {result.stage}" if not result.error else f"ERROR: {result.error}"
             print(f"  {sym:<8} {result.sector:<30} {status}")
+            if (i + 1) % 25 == 0 or (i + 1) == n:
+                self._progress(f"Analysing tickers… {i + 1} / {n}")
 
+        self._progress("Building report…")
         sector_results = self._aggregate_sectors(ticker_results)
         return self._build_report(sector_results)
 
@@ -215,6 +221,7 @@ class MarketAnalyzer:
         # Always include the TSX index for relative-strength calculation
         all_tickers = self.tickers + [INDEX_TICKER]
 
+        self._progress(f"Downloading price data for {len(self.tickers)} tickers…")
         raw = yf.download(
             all_tickers,
             period=self.period,
@@ -243,6 +250,7 @@ class MarketAnalyzer:
 
         # Fetch sector info and market cap in parallel — sequential calls for 961
         # tickers take ~8 minutes; 20 workers cuts that to under a minute.
+        self._progress(f"Fetching sector info for {len(self.tickers)} tickers…")
         def _fetch_one(sym: str) -> tuple:
             try:
                 return sym, yf.Ticker(sym).info
@@ -579,9 +587,9 @@ def _rsi(prices: pd.Series, period: int = 14) -> float:
     delta = prices.diff()
     gain  = delta.clip(lower=0).ewm(com=period - 1, min_periods=period).mean()
     loss  = (-delta.clip(upper=0)).ewm(com=period - 1, min_periods=period).mean()
-    rs    = gain / loss.replace(0, np.nan)
-    rsi   = 100 - 100 / (1 + rs)
-    val   = float(rsi.iloc[-1])
+    rs  = gain / loss.replace(0, np.nan)
+    rsi = (100 - 100 / (1 + rs)).fillna(100.0)  # zero loss → all gains → RSI 100
+    val = float(rsi.iloc[-1])
     return val if np.isfinite(val) else 50.0
 
 
